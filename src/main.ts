@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
@@ -13,6 +13,16 @@ import { AppModule } from './app.module.js';
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
+
+  // Habilitar validación automática con class-validator para todos los endpoints
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3000);
 
@@ -21,5 +31,6 @@ async function bootstrap(): Promise<void> {
 }
 
 await bootstrap();
+
 
 
