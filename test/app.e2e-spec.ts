@@ -4,9 +4,17 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
 
+/**
+ * Suite de pruebas End-to-End (e2e) para la aplicación NestJS.
+ *
+ * Propósito: Validar el flujo completo de peticiones HTTP en una instancia real de la aplicación.
+ */
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
 
+  /**
+   * Inicializa la aplicación antes de cada prueba e2e.
+   */
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -16,6 +24,9 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
+  /**
+   * Prueba de integración HTTP GET a la raíz ('/').
+   */
   it('/ (GET)', () => {
     return request(app.getHttpServer())
       .get('/')
@@ -23,7 +34,11 @@ describe('AppController (e2e)', () => {
       .expect('Hello World!');
   });
 
+  /**
+   * Cierra la aplicación liberando puertos y conexiones después de cada prueba.
+   */
   afterEach(async () => {
     await app.close();
   });
 });
+
