@@ -38,7 +38,10 @@ describe('AppController (e2e)', () => {
    * Cierra la aplicación liberando puertos y conexiones después de cada prueba.
    */
   afterEach(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 });
+
 
