@@ -108,6 +108,62 @@ export class UsersService {
   }
 
   /**
+   * Busca un usuario por email incluyendo el campo de contraseña ('password')
+   * que normalmente está excluido por defecto con select: false.
+   *
+   * Propósito: Permitir la verificación de contraseñas durante el inicio de sesión.
+   * @param email - Correo electrónico del usuario.
+   * @returns Promise<UserDocument | null> Documento del usuario con el campo password.
+   */
+  async findByEmailWithPassword(email: string): Promise<UserDocument | null> {
+    return await this.userModel
+      .findOne({ email: email.toLowerCase() })
+      .select('+password')
+      .exec();
+  }
+
+  /**
+   * Busca un usuario por googleId o email; si existe por email le asocia el googleId,
+   * y si no existe crea un nuevo registro.
+   *
+   * Propósito: Garantizar un flujo fluido de inicio de sesión con Google OAuth 2.0.
+   * @param profile - Información obtenida del perfil de Google (googleId, email, name, picture).
+   * @returns Promise<UserDocument> Documento de usuario autenticado o registrado.
+   */
+  async findOrCreateGoogleUser(profile: {
+    googleId: string;
+    email: string;
+    name: string;
+    picture?: string;
+  }): Promise<UserDocument> {
+    let user = await this.findByGoogleId(profile.googleId);
+    if (user) {
+      return user;
+    }
+
+    user = await this.findByEmail(profile.email);
+    if (user) {
+      user.googleId = profile.googleId;
+      if (!user.picture && profile.picture) {
+        user.picture = profile.picture;
+      }
+      return await user.save();
+    }
+
+    const newUser = new this.userModel({
+      name: profile.name,
+      email: profile.email.toLowerCase(),
+      googleId: profile.googleId,
+      picture: profile.picture,
+      isActive: true,
+      roles: ['user'],
+    });
+
+    return await newUser.save();
+  }
+
+
+  /**
    * Actualiza parcialmente la información de un usuario existente.
    *
    * Propósito: Aplicar cambios sobre un usuario validando ID y duplicidad de correo si cambia.
