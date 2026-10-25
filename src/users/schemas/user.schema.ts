@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
+import { UserRank } from '../enums/user-rank.enum.js';
 
 /**
  * Tipo que representa el documento de Mongoose para User.
@@ -49,7 +50,7 @@ export class User {
   googleId?: string;
 
   /**
-   * Roles o permisos asignados al usuario (ej. 'user', 'admin').
+   * Roles o permisos asignados al usuario en la plataforma (ej. 'user', 'admin').
    */
   @Prop({ type: [String], default: ['user'] })
   roles: string[];
@@ -59,6 +60,59 @@ export class User {
    */
   @Prop({ default: true })
   isActive: boolean;
+
+  /**
+   * Nivel o rango actual de liga del usuario.
+   */
+  @Prop({
+    type: String,
+    enum: Object.values(UserRank),
+    default: UserRank.PICHON,
+  })
+  currentRank: UserRank;
+
+  /**
+   * Puntos de experiencia (XP) acumulados históricamente. Nunca disminuyen.
+   */
+  @Prop({ type: Number, default: 0, min: 0 })
+  totalXp: number;
+
+  /**
+   * Puntos de experiencia (XP) obtenidos en el ciclo semanal actual.
+   * Se reinicia a 0 al finalizar cada semana.
+   */
+  @Prop({ type: Number, default: 0, min: 0 })
+  leagueXp: number;
+
+  /**
+   * Indica si el usuario no registró actividad en la semana previa
+   * y queda fuera del ranking competitivo de la liga semanal.
+   */
+  @Prop({ type: Boolean, default: false })
+  isPaused: boolean;
+
+  /**
+   * Lista de hasta 3 insignias o trofeos destacados que el usuario exhibe en su perfil.
+   */
+  @Prop({
+    type: [{ type: SchemaTypes.ObjectId, ref: 'Achievement' }],
+    default: [],
+    validate: [
+      (val: Types.ObjectId[]) => val.length <= 3,
+      'Las insignias destacadas no pueden exceder un máximo de 3.',
+    ],
+  })
+  featuredBadges: Types.ObjectId[];
+
+  /**
+   * Identificador del grupo de liga semanal activo al que pertenece el usuario.
+   */
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'LeagueGroup',
+    default: null,
+  })
+  currentLeagueGroupId?: Types.ObjectId;
 }
 
 /**

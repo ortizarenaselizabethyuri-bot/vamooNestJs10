@@ -1,12 +1,18 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEmail,
+  IsEnum,
+  IsMongoId,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
+  Min,
   MinLength,
 } from 'class-validator';
+import { UserRank } from '../enums/user-rank.enum.js';
 
 /**
  * Objeto de Transferencia de Datos (DTO) para la creación de un nuevo usuario.
@@ -66,4 +72,53 @@ export class CreateUserDto {
   @IsBoolean({ message: 'El estado activo debe ser un valor booleano.' })
   @IsOptional()
   readonly isActive?: boolean;
+
+  /**
+   * Rango o división de liga del usuario.
+   */
+  @IsEnum(UserRank, {
+    message:
+      'El rango debe ser uno de los válidos: Pichón, Pingüino, Flamenco, Oso de anteojos, Tortuga marina, Bagre dorado.',
+  })
+  @IsOptional()
+  readonly currentRank?: UserRank;
+
+  /**
+   * Total de XP acumulado históricamente.
+   */
+  @IsNumber({}, { message: 'El total de XP debe ser un número.' })
+  @Min(0, { message: 'El total de XP no puede ser negativo.' })
+  @IsOptional()
+  readonly totalXp?: number;
+
+  /**
+   * Puntos de XP obtenidos en el ciclo semanal actual.
+   */
+  @IsNumber({}, { message: 'El XP de liga debe ser un número.' })
+  @Min(0, { message: 'El XP de liga no puede ser negativo.' })
+  @IsOptional()
+  readonly leagueXp?: number;
+
+  /**
+   * Indica si el usuario está en pausa de la liga semanal.
+   */
+  @IsBoolean({ message: 'El estado de pausa debe ser un valor booleano.' })
+  @IsOptional()
+  readonly isPaused?: boolean;
+
+  /**
+   * Arreglo de hasta 3 identificadores de insignias destacadas.
+   */
+  @IsArray({ message: 'Las insignias destacadas deben ser un arreglo.' })
+  @ArrayMaxSize(3, { message: 'Solo se pueden destacar un máximo de 3 insignias.' })
+  @IsMongoId({ each: true, message: 'Cada insignia debe ser un ObjectId válido.' })
+  @IsOptional()
+  readonly featuredBadges?: string[];
+
+  /**
+   * Identificador del grupo de liga semanal asignado.
+   */
+  @IsMongoId({ message: 'El ID del grupo de liga debe ser un ObjectId válido.' })
+  @IsOptional()
+  readonly currentLeagueGroupId?: string;
 }

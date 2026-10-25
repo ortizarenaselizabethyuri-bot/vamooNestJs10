@@ -6,8 +6,17 @@ import {
   HttpStatus,
   Post,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import type { Response } from 'express';
 import type { UserDocument } from '../users/schemas/user.schema.js';
 import { AuthService } from './auth.service.js';
 import { GetUser } from './decorators/get-user.decorator.js';
@@ -22,14 +31,19 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
  * Propósito: Exponer los endpoints HTTP para registro, inicio de sesión local,
  * flujo de Google OAuth y consulta de perfil protegido con JWT.
  */
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   /**
-   * Inyecta la instancia del servicio de autenticación.
+   * Inyecta la instancia del servicio de autenticación y servicio de configuración.
    *
    * @param authService - Servicio con lógica de JWT, contraseñas y OAuth.
+   * @param configService - Servicio de variables de entorno para obtener URL del frontend.
    */
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * Endpoint POST /auth/register
@@ -40,6 +54,12 @@ export class AuthController {
    */
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Registrar un nuevo usuario',
+    description: 'Crea una nueva cuenta local y retorna el usuario con su token JWT.',
+  })
+  @ApiResponse({ status: 201, description: 'Usuario registrado exitosamente.' })
+  @ApiResponse({ status: 409, description: 'El correo electrónico ya se encuentra registrado.' })
   async register(@Body() registerDto: RegisterDto) {
     return await this.authService.register(registerDto);
   }
@@ -53,6 +73,12 @@ export class AuthController {
    */
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Iniciar sesión con credenciales locales',
+    description: 'Valida email y contraseña y retorna el usuario junto a su token JWT.',
+  })
+  @ApiResponse({ status: 200, description: 'Sesión iniciada exitosamente.' })
+  @ApiResponse({ status: 401, description: 'Credenciales inválidas.' })
   async login(@Body() loginDto: LoginDto) {
     return await this.authService.login(loginDto);
   }
@@ -64,6 +90,11 @@ export class AuthController {
    */
   @Get('google')
   @UseGuards(GoogleAuthGuard)
+  @ApiOperation({
+    summary: 'Iniciar flujo de autenticación con Google OAuth 2.0',
+    description: 'Redirige automáticamente a la pantalla de consentimiento de Google.',
+  })
+  @ApiResponse({ status: 302, description: 'Redirección a Google.' })
   async googleAuth() {
     // El GoogleAuthGuard redirige automáticamente al flujo de Google
   }
@@ -71,15 +102,44 @@ export class AuthController {
   /**
    * Endpoint GET /auth/google/callback
    *
-   * Propósito: Recibir la respuesta de autorización de Google, autenticar/registrar
-   * al usuario y responder con el token JWT de acceso.
+   * Propósito: Recibir la respuesta de autorización de Google OAuth 2.0, autenticar
+   * o vincular al usuario en el esquema User, generar el token JWT y redirigir
+   * al frontend Angular para ingresar a la sección de juego (/jugar).
    * @param req - Request con el usuario validado en req.user por GoogleStrategy.
-   * @returns Usuario autenticado y token JWT emitido por la aplicación.
+   * @param res - Objeto Response de Express para redirigir al frontend o emitir JSON.
+   * @returns Redirección HTTP 302 hacia Angular con sesión o respuesta JSON si es cliente API.
    */
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
-  async googleAuthCallback(@Req() req: any) {
-    return this.authService.loginWithGoogle(req.user);
+  @ApiOperation({
+    summary: 'Callback de Google OAuth 2.0',
+    description: 'Punto de retorno tras autorizar en Google; emite o autentica con JWT y redirige a la aplicación frontend.',
+  })
+  @ApiResponse({ status: 302, description: 'Redirección al frontend con token y sesión.' })
+  @ApiResponse({ status: 200, description: 'Autenticación con Google exitosa (formato JSON).' })
+  async googleAuthCallback(
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
+    const authResult = this.authService.loginWithGoogle(req.user);
+    const frontendUrl = this.configService.get<string>(
+      'FRONTEND_URL',
+      'http://localhost:4200',
+    );
+
+    // Si la petición solicita explícitamente JSON puro (Swagger, Postman, test de API)
+    if (
+      req.headers?.accept?.includes('application/json') &&
+      !req.headers?.accept?.includes('text/html')
+    ) {
+      return res.status(HttpStatus.OK).json(authResult);
+    }
+
+    // Serialización segura de los datos del usuario para el cliente Angular
+    const encodedUser = encodeURIComponent(JSON.stringify(authResult.user));
+    const targetUrl = `${frontendUrl}/login?token=${authResult.accessToken}&user=${encodedUser}`;
+
+    return res.redirect(targetUrl);
   }
 
   /**
@@ -92,6 +152,13 @@ export class AuthController {
    */
   @Get('profile')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Obtener perfil del usuario autenticado',
+    description: 'Ruta protegida que extrae y retorna los datos del token JWT en sesión.',
+  })
+  @ApiResponse({ status: 200, description: 'Perfil obtenido correctamente.' })
+  @ApiResponse({ status: 401, description: 'No autorizado / Token JWT inválido o ausente.' })
   getProfile(@GetUser() user: UserDocument) {
     return {
       message: 'Acceso autorizado con JWT.',

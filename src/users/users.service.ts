@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -18,6 +19,8 @@ import { User, UserDocument } from './schemas/user.schema.js';
  */
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   /**
    * Inyecta el modelo de Mongoose para la entidad User.
    *
@@ -52,7 +55,9 @@ export class UsersService {
       email: createUserDto.email.toLowerCase(),
     });
 
-    return await newUser.save();
+    const savedUser = await newUser.save();
+    this.logger.log(`👤 Usuario creado exitosamente: ${savedUser.email} (ID: ${savedUser._id})`);
+    return savedUser;
   }
 
   /**
@@ -138,16 +143,34 @@ export class UsersService {
   }): Promise<UserDocument> {
     let user = await this.findByGoogleId(profile.googleId);
     if (user) {
+      let isModified = false;
+      if (profile.picture && user.picture !== profile.picture) {
+        user.picture = profile.picture;
+        isModified = true;
+      }
+      if (profile.name && user.name !== profile.name) {
+        user.name = profile.name;
+        isModified = true;
+      }
+      if (isModified) {
+        await user.save();
+      }
+      this.logger.log(`👤 Usuario de Google verificado en base de datos: ${user.email} (ID: ${user._id})`);
       return user;
     }
 
     user = await this.findByEmail(profile.email);
     if (user) {
       user.googleId = profile.googleId;
-      if (!user.picture && profile.picture) {
+      if (profile.picture && (!user.picture || user.picture !== profile.picture)) {
         user.picture = profile.picture;
       }
-      return await user.save();
+      if (profile.name && (!user.name || user.name !== profile.name)) {
+        user.name = profile.name;
+      }
+      const updated = await user.save();
+      this.logger.log(`🔗 Usuario existente vinculado a Google OAuth: ${updated.email} (ID: ${updated._id})`);
+      return updated;
     }
 
     const newUser = new this.userModel({
@@ -159,7 +182,9 @@ export class UsersService {
       roles: ['user'],
     });
 
-    return await newUser.save();
+    const savedUser = await newUser.save();
+    this.logger.log(`🌟 Nuevo usuario registrado en esquema User mediante Google OAuth: ${savedUser.email} (ID: ${savedUser._id})`);
+    return savedUser;
   }
 
 
@@ -206,6 +231,7 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID "${id}" no encontrado.`);
     }
 
+    this.logger.log(`✏️ Usuario actualizado: ${updatedUser.email} (ID: ${id})`);
     return updatedUser;
   }
 
@@ -226,10 +252,108 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID "${id}" no encontrado.`);
     }
 
+    this.logger.log(`🗑️ Usuario eliminado: ${deletedUser.email} (ID: ${id})`);
     return {
       message: 'Usuario eliminado exitosamente.',
       deletedId: id,
     };
+  }
+
+  /**
+   * Incrementa la experiencia (XP) de un usuario de forma atómica.
+   *
+   * Propósito: Actualizar simultáneamente el totalXp histórico y el leagueXp semanal
+   * tras completar una ruta, actividad o ganar un bonus.
+   * @param id - Identificador único del usuario (_id).
+   * @param xp - Cantidad de puntos de experiencia a sumar.
+   * @returns Promise<UserDocument> Documento de usuario con los XP actualizados.
+   * @throws BadRequestException Si el ID es inválido o el XP es menor o igual a cero.
+   * @throws NotFoundException Si el usuario no existe.
+   */
+  async addXp(id: string, xp: number): Promise<UserDocument> {
+    this.validateObjectId(id);
+
+    if (xp <= 0) {
+      throw new BadRequestException('Los puntos de XP a sumar deben ser mayores a cero.');
+    }
+
+    const updatedUser = await this.userModel
+      .findByIdAndUpdate(
+        id,
+        {
+          $inc: {
+            totalXp: xp,
+            leagueXp: xp,
+          },
+        },
+        { new: true },
+      )
+      .exec();
+
+    if (!updatedUser) {
+      throw new NotFoundException(`Usuario con ID "${id}" no encontrado.`);
+    }
+
+    this.logger.log(
+      `⭐ XP sumada a usuario ${updatedUser.email}: +${xp} XP (Total: ${updatedUser.totalXp}, Liga: ${updatedUser.leagueXp})`,
+    );
+    return updatedUser;
+  }
+
+  /**
+   * Actualiza la lista de insignias o trofeos destacados en el perfil del usuario.
+   *
+   * Propósito: Permitir al usuario seleccionar hasta un máximo de 3 insignias para lucir en su perfil público.
+   * @param id - Identificador único del usuario (_id).
+   * @param badgeIds - Arreglo de IDs de insignias (máximo 3).
+   * @returns Promise<UserDocument> Documento de usuario actualizado.
+   * @throws BadRequestException Si el arreglo excede 3 insignias o algún ID es inválido.
+   * @throws NotFoundException Si el usuario no existe.
+   */
+  async updateFeaturedBadges(
+    id: string,
+    badgeIds: string[],
+  ): Promise<UserDocument> {
+    this.validateObjectId(id);
+
+    if (badgeIds.length > 3) {
+      throw new BadRequestException('No puedes destacar más de 3 insignias en tu perfil.');
+    }
+
+    for (const badgeId of badgeIds) {
+      this.validateObjectId(badgeId);
+    }
+
+    const updatedUser = await this.userModel
+      .findByIdAndUpdate(
+        id,
+        { featuredBadges: badgeIds },
+        { new: true },
+      )
+      .populate('featuredBadges')
+      .exec();
+
+    if (!updatedUser) {
+      throw new NotFoundException(`Usuario con ID "${id}" no encontrado.`);
+    }
+
+    this.logger.log(`🏅 Insignias destacadas actualizadas para ${updatedUser.email}: [${badgeIds.join(', ')}]`);
+    return updatedUser;
+  }
+
+  /**
+   * Reinicia los puntos de experiencia de liga (leagueXp) a 0 para todos los usuarios activos.
+   *
+   * Propósito: Ejecutarse automáticamente al cierre de cada ciclo semanal por el Cron Job de ligas.
+   * @returns Promise<number> Cantidad de usuarios cuyo XP de liga fue reiniciado.
+   */
+  async resetWeeklyLeagueXp(): Promise<number> {
+    const result = await this.userModel.updateMany(
+      {},
+      { $set: { leagueXp: 0 } },
+    );
+    this.logger.log(`🔄 Reinicio semanal de leagueXp completado para ${result.modifiedCount} usuarios.`);
+    return result.modifiedCount;
   }
 
   /**

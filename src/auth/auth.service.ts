@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -19,6 +20,8 @@ import { RegisterDto } from './dto/register.dto.js';
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   /**
    * Inyecta UsersService y JwtService.
    *
@@ -57,6 +60,7 @@ export class AuthService {
       isActive: true,
     });
 
+    this.logger.log(`👤 Nuevo usuario registrado: ${newUser.email} (ID: ${newUser._id})`);
     const accessToken = this.generateToken(newUser);
 
     return {
@@ -77,6 +81,7 @@ export class AuthService {
     const user = await this.usersService.findByEmailWithPassword(loginDto.email);
 
     if (!user) {
+      this.logger.warn(`Intento fallido de login: usuario no encontrado (${loginDto.email})`);
       throw new UnauthorizedException('Credenciales inválidas.');
     }
 
@@ -92,15 +97,18 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
+      this.logger.warn(`Intento fallido de login: contraseña incorrecta (${loginDto.email})`);
       throw new UnauthorizedException('Credenciales inválidas.');
     }
 
     if (!user.isActive) {
+      this.logger.warn(`Intento de login con cuenta inactiva (${loginDto.email})`);
       throw new UnauthorizedException(
         'Tu cuenta se encuentra inactiva. Contacta al administrador.',
       );
     }
 
+    this.logger.log(`🔑 Sesión local iniciada: ${user.email} (ID: ${user._id})`);
     const accessToken = this.generateToken(user);
 
     return {
@@ -117,6 +125,7 @@ export class AuthService {
    * @returns { user: any; accessToken: string } Información del usuario y token JWT.
    */
   loginWithGoogle(user: UserDocument): { user: any; accessToken: string } {
+    this.logger.log(`🌐 Sesión iniciada con Google OAuth: ${user.email} (ID: ${user._id})`);
     const accessToken = this.generateToken(user);
 
     return {
